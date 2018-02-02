@@ -102,7 +102,7 @@ glm =  glm(counts ~ hour + site*year - 1, data = df, family = "quasipoisson")
 #summary(glm)
 sum(glm$residuals^2)
 
-glm_p = glm(counts ~ , data = df, family = "poisson")
+glm_p = glm(counts ~ hour + site*year - 1, data = df, family = "poisson")
 sum(glm_p$residuals^2)
 #exactely the same estimates, they are not discrete because I am regressing the mean of the distribution
 plot(glm)
@@ -117,6 +117,142 @@ sum(poi_mb$residuals^2)
 ```
 
 
+```{r}
+#Some plotting
+influencePlot(glm)
 
+#residual plot
+mu_hat_b = predict(poi_mb)
+res = resid(poi_mb)
+sigma = sigma.hat(poi_mb)
+residual.plot(mu_hat_b, res, sigma)
+
+#binned plot
+binnedplot(mu_hat_b,res)
+
+#coefplot
+#coefplot(poi_mb,col="blue")
+```
+
+
+```{r}
+#subsetting data
+poi_1990 = glm(counts ~ 1,data = df, family =quasipoisson(link = "log"),subset=(year == 1990))
+#summary(poi_1990)
+```
+
+
+
+```{r}
+#Bayesian Logistic model with JAGS
+#lm = lm(counts ~ -1 + year + site + hour, data = df)
+
+
+n = nrow(df)
+X = subset(df, select = c(hour))
+n_year = length(unique(df$year))
+n_site = length(unique(df$site))
+
+data = list(Y = df[,"counts"], 
+            X = X,
+            n_year = n_year,
+            n_site = n_site,
+            year = df$year,
+            site = df$site,
+            p = ncol(X),
+            n = n)
+
+
+#JAGS
+rr.model = function() {
+  
+  for (i in 1:n){
+		Y[i] ~ dpois(mu[i])
+		mu[i] <- exp(z[i])
+		z[i] <- beta[year[i]] + beta1[site[i]] + inprod(X[i,],alpha) + epsilon
+  }
+  
+  epsilon ~ dnorm(0, gamma_eps)
+  gamma_eps ~ dgamma(0.5,0.5)
+	#alpha0 ~ dnorm(0, 1.0E-6)
+	
+	for (k in 1:n_year){
+    gamma[k] ~ dgamma(0.5,0.5)
+    beta[k] ~ dnorm(mu0, gamma[k])
+	  #beta[k] ~ dnorm(0, gamma[k])
+	}
+	
+	for (l in 1:n_site){
+    gamma1[l] ~ dgamma(0.5,0.5)
+    beta1[l] ~ dnorm(0, gamma1[l])
+	  #beta[k] ~ dnorm(0, gamma[k])
+	}
+	
+	#this hierarchical specificacation makes everything super slow
+  mu0 ~ dnorm(0,0.00001)
+  #eta ~ dgamma(0.5,0.5)
+  
+  
+  for (j in 1:p) {
+    tau[j] ~ dgamma(0.5,0.5)
+    alpha[j] ~ dnorm(0, tau[j])
+  }
+}
+
+#parameters to monitor
+parameters = c("alpha0","alpha","beta","mu0","gamma","beta1","gamma1","eta","tau")
+
+# run jags from R  (see Resources to install)
+sim = jags(data, 
+           inits=NULL, 
+           par=parameters,
+           model=rr.model,
+           n.iter=10000)
+```
+
+
+```{r}
+#Bayesian Logistic model with JAGS
+lm = lm(counts ~ -1 + year + site + hour, data = df)
+#missing the indicator variable for site 1
+
+X = model.matrix(lm)
+
+n = nrow(df)
+#X = subset(df,select=-c(counts,date))
+
+
+data = list(Y = df[,"counts"], 
+            X = X,
+            k = ncol(X),
+            n = n)
+
+
+#JAGS
+rr.model = function() {
+  
+  for (i in 1:n){
+		Y[i] ~ dpois(mu[i])
+		mu[i] <- exp(z[i])
+		z[i] <- alpha0 + inprod(X[i,],alpha)
+  }
+  
+	alpha0 ~ dnorm(0, 1.0E-6)
+
+  for (j in 1:k) {
+    alpha[j] ~ dnorm(0, 1.0E-6)
+  }
+}
+
+#parameters to monitor
+parameters = c("alpha0","alpha")
+
+# run jags from R  (see Resources to install)
+sim = jags(data, 
+           inits=NULL, 
+           par=parameters,
+           model=rr.model,
+           n.iter=10000)
+```
 
 
