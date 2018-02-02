@@ -1,0 +1,122 @@
+---
+title: "SpringBok Dataset"
+author: "Federico Ferrari"
+header-includes:
+   - \usepackage{multirow}
+   - \usepackage{amsmath}
+   - \usepackage{bbm}
+output: 
+  html_document: default
+  pdf_document: default
+  
+---
+
+```{r echo=FALSE, include=FALSE}
+library(lasso2)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(car)
+library(ggthemes)
+library(randomForest)
+library(devtools)
+library(RCurl)
+library(gridExtra)
+library(plotROC)
+library(pROC)
+library(isotone)
+library(grid)
+library(lattice)
+library(stargazer)
+library(R2jags)
+library(ggmcmc)
+library(mcmcplots)
+library(gdata)
+library(MASS)
+library(grid)
+library(dplyr)
+library(arm)
+library(knitr)
+library(coda)
+library(ggplot2)
+```
+
+```{r}
+df = read.xls("springbok.xls",header = T)
+#locnumber and site are exactely the same variables
+df = df[,-1]
+colnames(df) = c("site","year","date","hour","counts")
+df$site = as.factor(df$site)
+df$year = as.factor(df$year)
+
+#some grouping 
+df_group = df %>%
+  group_by(site,year) %>%
+  summarise_each(funs(mean(., na.rm=TRUE)), -c(date,hour))
+
+df_group_means = df %>%
+  group_by(year) %>%
+  summarise_each(funs(mean(., na.rm=TRUE)), -c(date,hour,site))
+```
+
+```{r}
+#the mean is displayed in black
+ggplot()+
+  geom_point(data = df_group, aes(x = year, y = counts , col = site))+
+  geom_point(data = df_group_means, aes(x = year, y = counts),color="black")
+
+
+#h = subset(df_group, site == 1)
+#ggplot()+
+#  geom_histogram(data = h, aes(x = counts))
+
+#density of the counts per year, black is the distribution of counts over
+#all years
+ggplot()+
+  geom_density(data = df, aes(x = counts, group = year, col = year))+
+  geom_density(data = df, aes(x = counts), col="black")
+
+
+#density of the counts per site, black is the distribution of counts over
+#all sites
+ggplot()+
+  geom_density(data = df, aes(x = counts, group = site, col = site))+
+  geom_density(data = df, aes(x = counts), col="black")
+```
+
+
+```{r}
+#basic lm: are the counts increasing every year?
+lm = lm(counts ~ year, data = df)
+#summary(lm)
+```
+
+1) Reasonable to assume that $x_t | x_{1:t-1} \sim x_t | x_{t-1}$ where $x_t$ is counts
+2) Poisson count model? 
+
+
+```{r}
+#poisson count model
+#"quasipoisson families differ from the binomial and poisson families only in that the dispersion parameter is not fixed at one"
+glm =  glm(counts ~ hour + site*year - 1, data = df, family = "quasipoisson")
+#summary(glm)
+sum(glm$residuals^2)
+
+glm_p = glm(counts ~ , data = df, family = "poisson")
+sum(glm_p$residuals^2)
+#exactely the same estimates, they are not discrete because I am regressing the mean of the distribution
+plot(glm)
+```
+
+```{r}
+#bayesian Poisson Model 
+poi_mb = bayesglm(counts ~ hour + year*site - 1,data = df, family =quasipoisson(link = "log"))
+#summary(poi_mb)
+#little improvement in the residuals
+sum(poi_mb$residuals^2)
+```
+
+
+
+
+
