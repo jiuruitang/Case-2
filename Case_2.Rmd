@@ -23,6 +23,7 @@ library(devtools)
 library(RCurl)
 library(gridExtra)
 library(plotROC)
+library(MCMCpack)
 library(pROC)
 library(isotone)
 library(grid)
@@ -139,6 +140,18 @@ binnedplot(mu_hat_b,res)
 #subsetting data
 poi_1990 = glm(counts ~ 1,data = df, family =quasipoisson(link = "log"),subset=(year == 1990))
 #summary(poi_1990)
+options(max.print = 100000000)
+```
+
+```{r}
+#MCMC package
+
+
+model <- MCMChpoisson(fixed= counts~site+hour+year, random=~site+year, group="year",
+              data=df, burnin=5000, mcmc=1000, thin=1,verbose=1,
+              seed=NA, beta.start=0, sigma2.start=1,
+              Vb.start=1, mubeta=0, Vbeta=1.0E6,
+              r=200, R=diag(nrow = 3), nu=0.001, delta=0.001, FixOD=1)
 ```
 
 
@@ -152,11 +165,14 @@ n = nrow(df)
 X = subset(df, select = c(hour))
 n_year = length(unique(df$year))
 n_site = length(unique(df$site))
-
+zero = rep(0,n_year)
+R = diag(nrow = n_year)
 data = list(Y = df[,"counts"], 
             X = X,
             n_year = n_year,
             n_site = n_site,
+            zero = zero,
+            R = R,
             year = df$year,
             site = df$site,
             p = ncol(X),
@@ -169,29 +185,28 @@ rr.model = function() {
   for (i in 1:n){
 		Y[i] ~ dpois(mu[i])
 		mu[i] <- exp(z[i])
-		z[i] <- beta[year[i]] + beta1[site[i]] + inprod(X[i,],alpha) + epsilon
+		z[i] ~ dnorm(alpha0 + beta[year[i]] + beta1[site[i]] + inprod(X[i,],alpha),0.00001)
   }
   
   epsilon ~ dnorm(0, gamma_eps)
   gamma_eps ~ dgamma(0.5,0.5)
-	#alpha0 ~ dnorm(0, 1.0E-6)
+	alpha0 ~ dnorm(0, 1.0E-6)
 	
-	for (k in 1:n_year){
-    gamma[k] ~ dgamma(0.5,0.5)
-    beta[k] ~ dnorm(mu0, gamma[k])
+	#for (k in 1:n_year){
+  #  gamma[k] ~ dgamma(0.5,0.5)
+  #  beta[k] ~ dnorm(mu0, gamma[k])
 	  #beta[k] ~ dnorm(0, gamma[k])
-	}
+	#}
+  beta ~ dmnorm(zero[1:13],Sigma.inv[,])
+  Sigma.inv ~ dwish(R,n_year + 1)
+  Sigma <- inverse(Sigma.inv)
+
 	
 	for (l in 1:n_site){
     gamma1[l] ~ dgamma(0.5,0.5)
     beta1[l] ~ dnorm(0, gamma1[l])
-	  #beta[k] ~ dnorm(0, gamma[k])
 	}
 	
-	#this hierarchical specificacation makes everything super slow
-  mu0 ~ dnorm(0,0.00001)
-  #eta ~ dgamma(0.5,0.5)
-  
   
   for (j in 1:p) {
     tau[j] ~ dgamma(0.5,0.5)
@@ -200,7 +215,7 @@ rr.model = function() {
 }
 
 #parameters to monitor
-parameters = c("alpha0","alpha","beta","mu0","gamma","beta1","gamma1","eta","tau")
+parameters = c("alpha0","alpha","beta","gamma","beta1","gamma1","tau","Sigma")
 
 # run jags from R  (see Resources to install)
 sim = jags(data, 
